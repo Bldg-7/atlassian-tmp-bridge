@@ -9,7 +9,7 @@ dependencies = [
 ]
 
 [project.scripts]
-atlassian-tmp-bridge = "atlassian_tmp_bridge:main"
+serve = "atlassian_tmp_bridge:main"
 
 [build-system]
 requires = ["hatchling"]
