@@ -1,0 +1,184 @@
+"""Jira issue tools."""
+
+from .adf import adf_to_text, text_to_adf
+from .app import mcp
+from .client import jira_request
+
+DEFAULT_FIELDS = "summary,status,assignee,reporter,priority,labels,description,issuetype,created,updated"
+
+
+def _format_issue(issue: dict) -> str:
+    key = issue["key"]
+    f = issue.get("fields", {})
+
+    summary = f.get("summary", "")
+    status = (f.get("status") or {}).get("name", "?")
+    issue_type = (f.get("issuetype") or {}).get("name", "?")
+    priority = (f.get("priority") or {}).get("name", "?")
+    assignee = (f.get("assignee") or {}).get("displayName", "Unassigned")
+    reporter = (f.get("reporter") or {}).get("displayName", "?")
+    labels = ", ".join(f.get("labels", [])) or "없음"
+    created = (f.get("created") or "")[:10]
+    updated = (f.get("updated") or "")[:10]
+    description = adf_to_text(f.get("description"))
+
+    lines = [
+        f"[{key}] {summary}",
+        f"유형: {issue_type} | 상태: {status} | 우선순위: {priority}",
+        f"담당자: {assignee} | 보고자: {reporter}",
+        f"라벨: {labels}",
+        f"생성: {created} | 수정: {updated}",
+    ]
+    if description:
+        lines.append(f"\n설명:\n{description}")
+    return "\n".join(lines)
+
+
+def _format_issue_row(issue: dict) -> str:
+    key = issue["key"]
+    f = issue.get("fields", {})
+    summary = f.get("summary", "")
+    status = (f.get("status") or {}).get("name", "?")
+    assignee = (f.get("assignee") or {}).get("displayName", "Unassigned")
+    priority = (f.get("priority") or {}).get("name", "?")
+    return f"- [{key}] {summary} | {status} | {assignee} | {priority}"
+
+
+@mcp.tool()
+async def get_issue(issue_key: str, fields: str = DEFAULT_FIELDS) -> str:
+    """Get detailed information for a Jira issue.
+
+    Args:
+        issue_key: Jira issue key (e.g. PROJ-123)
+        fields: Comma-separated field names (default: core fields)
+    """
+    data = await jira_request("GET", f"/rest/api/3/issue/{issue_key}", params={"fields": fields})
+    if data.get("error"):
+        return f"Error: {data['status']} - {data['detail']}"
+    return _format_issue(data)
+
+
+@mcp.tool()
+async def search_issues(jql: str, max_results: int = 20) -> str:
+    """Search Jira issues using JQL.
+
+    Args:
+        jql: JQL query string (e.g. 'project = PROJ AND status = "In Progress"')
+        max_results: Maximum number of results (default 20, max 50)
+    """
+    max_results = min(max_results, 50)
+    data = await jira_request(
+        "POST",
+        "/rest/api/3/search",
+        json={
+            "jql": jql,
+            "maxResults": max_results,
+            "fields": ["summary", "status", "assignee", "priority"],
+        },
+    )
+    if data.get("error"):
+        return f"Error: {data['status']} - {data['detail']}"
+
+    issues = data.get("issues", [])
+    total = data.get("total", 0)
+    if not issues:
+        return "검색 결과 없음"
+
+    lines = [f"검색 결과 ({total}건, {len(issues)}건 표시):"]
+    for issue in issues:
+        lines.append(_format_issue_row(issue))
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def create_issue(
+    project_key: str,
+    summary: str,
+    issue_type: str = "Task",
+    description: str = "",
+    assignee: str = "",
+    priority: str = "",
+    labels: str = "",
+) -> str:
+    """Create a new Jira issue.
+
+    Args:
+        project_key: Project key (e.g. PROJ)
+        summary: Issue title
+        issue_type: Issue type name (default: Task)
+        description: Issue description (plain text)
+        assignee: Assignee account ID
+        priority: Priority name (e.g. High, Medium, Low)
+        labels: Comma-separated labels
+    """
+    fields: dict = {
+        "project": {"key": project_key},
+        "summary": summary,
+        "issuetype": {"name": issue_type},
+    }
+    if description:
+        fields["description"] = text_to_adf(description)
+    if assignee:
+        fields["assignee"] = {"accountId": assignee}
+    if priority:
+        fields["priority"] = {"name": priority}
+    if labels:
+        fields["labels"] = [l.strip() for l in labels.split(",")]
+
+    data = await jira_request("POST", "/rest/api/3/issue", json={"fields": fields})
+    if data.get("error"):
+        return f"Error: {data['status']} - {data['detail']}"
+    return f"Created [{data['key']}] \"{summary}\""
+
+
+@mcp.tool()
+async def update_issue(
+    issue_key: str,
+    summary: str = "",
+    description: str = "",
+    assignee: str = "",
+    priority: str = "",
+    labels: str = "",
+) -> str:
+    """Update fields on an existing Jira issue.
+
+    Args:
+        issue_key: Jira issue key (e.g. PROJ-123)
+        summary: New summary (leave empty to skip)
+        description: New description in plain text (leave empty to skip)
+        assignee: New assignee account ID (leave empty to skip)
+        priority: New priority name (leave empty to skip)
+        labels: Comma-separated labels (leave empty to skip)
+    """
+    fields: dict = {}
+    if summary:
+        fields["summary"] = summary
+    if description:
+        fields["description"] = text_to_adf(description)
+    if assignee:
+        fields["assignee"] = {"accountId": assignee}
+    if priority:
+        fields["priority"] = {"name": priority}
+    if labels:
+        fields["labels"] = [l.strip() for l in labels.split(",")]
+
+    if not fields:
+        return "Error: No fields to update"
+
+    data = await jira_request("PUT", f"/rest/api/3/issue/{issue_key}", json={"fields": fields})
+    if data.get("error"):
+        return f"Error: {data['status']} - {data['detail']}"
+    return f"Updated [{issue_key}]"
+
+
+@mcp.tool()
+async def delete_issue(issue_key: str) -> str:
+    """Delete a Jira issue.
+
+    Args:
+        issue_key: Jira issue key (e.g. PROJ-123)
+    """
+    data = await jira_request("DELETE", f"/rest/api/3/issue/{issue_key}")
+    if data.get("error"):
+        return f"Error: {data['status']} - {data['detail']}"
+    return f"Deleted [{issue_key}]"
