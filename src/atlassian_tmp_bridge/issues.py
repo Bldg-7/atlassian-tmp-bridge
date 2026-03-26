@@ -17,7 +17,7 @@ def _format_issue(issue: dict) -> str:
     priority = (f.get("priority") or {}).get("name", "?")
     assignee = (f.get("assignee") or {}).get("displayName", "Unassigned")
     reporter = (f.get("reporter") or {}).get("displayName", "?")
-    labels = ", ".join(f.get("labels", [])) or "없음"
+    labels = ", ".join(f.get("labels", [])) or "None"
     created = (f.get("created") or "")[:10]
     updated = (f.get("updated") or "")[:10]
     description = adf_to_text(f.get("description"))
@@ -27,7 +27,7 @@ def _format_issue(issue: dict) -> str:
         f"유형: {issue_type} | 상태: {status} | 우선순위: {priority}",
         f"담당자: {assignee} | 보고자: {reporter}",
         f"라벨: {labels}",
-        f"생성: {created} | 수정: {updated}",
+        f"Created: {created} | Updated: {updated}",
     ]
     if description:
         lines.append(f"\n설명:\n{description}")
@@ -73,7 +73,7 @@ async def count_issues(jql: str) -> str:
     if data.get("error"):
         return f"Error: {data['status']} - {data['detail']}"
     count = data.get("count", 0)
-    return f"검색 결과: 약 {count}건"
+    return f"Approximate count: {count}"
 
 
 @mcp.tool()
@@ -100,9 +100,9 @@ async def search_issues(jql: str, max_results: int = 20, next_page_token: str = 
 
     issues = data.get("issues", [])
     if not issues:
-        return "검색 결과 없음"
+        return "No results found"
 
-    lines = [f"검색 결과 ({len(issues)}건 표시):"]
+    lines = [f"Search results ({len(issues)} shown):"]
     for issue in issues:
         lines.append(_format_issue_row(issue))
 

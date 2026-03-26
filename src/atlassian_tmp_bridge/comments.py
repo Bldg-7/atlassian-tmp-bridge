@@ -28,7 +28,7 @@ async def get_comments(issue_key: str) -> str:
     if not comments:
         return f"No comments on {issue_key}"
 
-    lines = [f"Comments on {issue_key} ({len(comments)}건):\n"]
+    lines = [f"Comments on {issue_key} ({len(comments)}):\n"]
     for c in comments:
         lines.append(_format_comment(c))
         lines.append("")
