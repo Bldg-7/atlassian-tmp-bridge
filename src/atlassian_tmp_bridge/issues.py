@@ -59,34 +59,57 @@ async def get_issue(issue_key: str, fields: str = DEFAULT_FIELDS) -> str:
 
 
 @mcp.tool()
-async def search_issues(jql: str, max_results: int = 20) -> str:
+async def count_issues(jql: str) -> str:
+    """Count the approximate number of issues matching a JQL query.
+
+    Args:
+        jql: JQL query string (e.g. 'project = PROJ AND status = "In Progress"')
+    """
+    data = await jira_request(
+        "POST",
+        "/rest/api/3/search/approximate-count",
+        json={"jql": jql},
+    )
+    if data.get("error"):
+        return f"Error: {data['status']} - {data['detail']}"
+    count = data.get("count", 0)
+    return f"검색 결과: 약 {count}건"
+
+
+@mcp.tool()
+async def search_issues(jql: str, max_results: int = 20, next_page_token: str = "") -> str:
     """Search Jira issues using JQL.
 
     Args:
         jql: JQL query string (e.g. 'project = PROJ AND status = "In Progress"')
-        max_results: Maximum number of results (default 20, max 50)
+        max_results: Maximum number of results per page (default 20, max 50)
+        next_page_token: Token for fetching the next page (from previous search result)
     """
     max_results = min(max_results, 50)
-    data = await jira_request(
-        "POST",
-        "/rest/api/3/search",
-        json={
-            "jql": jql,
-            "maxResults": max_results,
-            "fields": ["summary", "status", "assignee", "priority"],
-        },
-    )
+    body: dict = {
+        "jql": jql,
+        "maxResults": max_results,
+        "fields": ["summary", "status", "assignee", "priority"],
+    }
+    if next_page_token:
+        body["nextPageToken"] = next_page_token
+
+    data = await jira_request("POST", "/rest/api/3/search/jql", json=body)
     if data.get("error"):
         return f"Error: {data['status']} - {data['detail']}"
 
     issues = data.get("issues", [])
-    total = data.get("total", 0)
     if not issues:
         return "검색 결과 없음"
 
-    lines = [f"검색 결과 ({total}건, {len(issues)}건 표시):"]
+    lines = [f"검색 결과 ({len(issues)}건 표시):"]
     for issue in issues:
         lines.append(_format_issue_row(issue))
+
+    token = data.get("nextPageToken")
+    if token:
+        lines.append(f"\n다음 페이지 토큰: {token}")
+
     return "\n".join(lines)
 
 
