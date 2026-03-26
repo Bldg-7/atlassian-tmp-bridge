@@ -81,6 +81,8 @@ async def bulk_update_issues(updates: str) -> str:
     if not isinstance(update_list, list) or not update_list:
         return "Error: updates must be a non-empty JSON array"
 
+    sem = asyncio.Semaphore(5)
+
     async def _update_one(item: dict) -> tuple[str, bool, str]:
         key = item.get("key", "?")
         fields: dict = {}
@@ -98,7 +100,8 @@ async def bulk_update_issues(updates: str) -> str:
         if not fields:
             return key, False, "no fields to update"
 
-        data = await jira_request("PUT", f"/rest/api/3/issue/{key}", json={"fields": fields})
+        async with sem:
+            data = await jira_request("PUT", f"/rest/api/3/issue/{key}", json={"fields": fields})
         if data.get("error"):
             return key, False, f"{data['status']} - {data['detail']}"
         return key, True, ""
