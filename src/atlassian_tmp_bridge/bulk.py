@@ -1,6 +1,5 @@
 """Jira bulk operation tools."""
 
-import asyncio
 import json
 
 from .adf import text_to_adf
@@ -66,55 +65,68 @@ async def bulk_create_issues(project_key: str, issue_type: str, items: str) -> s
 
 
 @mcp.tool()
-async def bulk_update_issues(updates: str) -> str:
-    """Update multiple Jira issues in parallel.
+async def bulk_update_issues(
+    issue_keys: str,
+    priority_id: str = "",
+    labels: str = "",
+    label_action: str = "ADD",
+    description: str = "",
+    send_notification: bool = False,
+) -> str:
+    """Bulk update multiple Jira issues with the same field values (max 1000).
 
     Args:
-        updates: JSON array of objects with "key" and fields to update.
-                 Example: [{"key": "PROJ-1", "summary": "New title"}, {"key": "PROJ-2", "priority": "High"}]
+        issue_keys: Comma-separated issue keys (e.g. "PROJ-1,PROJ-2,PROJ-3")
+        priority_id: Priority ID to set on all issues (e.g. "1" for Highest)
+        labels: Comma-separated labels (e.g. "bug,urgent")
+        label_action: How to apply labels: ADD, REMOVE, or REPLACE (default ADD)
+        description: New description for all issues (plain text)
+        send_notification: Send email notification for changes (default false)
     """
-    try:
-        update_list = json.loads(updates)
-    except json.JSONDecodeError as e:
-        return f"Error: Invalid JSON - {e}"
+    keys = [k.strip() for k in issue_keys.split(",") if k.strip()]
+    if not keys:
+        return "Error: No issue keys provided"
+    if len(keys) > 1000:
+        return "Error: Maximum 1000 issues per bulk update"
 
-    if not isinstance(update_list, list) or not update_list:
-        return "Error: updates must be a non-empty JSON array"
+    selected_actions: list[str] = []
+    edited_fields: dict = {}
 
-    sem = asyncio.Semaphore(5)
+    if priority_id:
+        selected_actions.append("priority")
+        edited_fields["priority"] = {"priorityId": priority_id}
 
-    async def _update_one(item: dict) -> tuple[str, bool, str]:
-        key = item.get("key", "?")
-        fields: dict = {}
-        if item.get("summary"):
-            fields["summary"] = item["summary"]
-        if item.get("description"):
-            fields["description"] = text_to_adf(item["description"])
-        if item.get("assignee"):
-            fields["assignee"] = {"accountId": item["assignee"]}
-        if item.get("priority"):
-            fields["priority"] = {"name": item["priority"]}
-        if item.get("labels"):
-            fields["labels"] = item["labels"] if isinstance(item["labels"], list) else [item["labels"]]
+    if labels:
+        selected_actions.append("labels")
+        label_list = [{"name": l.strip()} for l in labels.split(",") if l.strip()]
+        edited_fields["labelsFields"] = [{
+            "fieldId": "labels",
+            "labels": label_list,
+            "bulkEditMultiSelectFieldOption": label_action.upper(),
+        }]
 
-        if not fields:
-            return key, False, "no fields to update"
+    if description:
+        selected_actions.append("description")
+        edited_fields["richTextFields"] = [{
+            "fieldId": "description",
+            "richText": {"adfValue": text_to_adf(description)},
+        }]
 
-        async with sem:
-            data = await jira_request("PUT", f"/rest/api/3/issue/{key}", json={"fields": fields})
-        if data.get("error"):
-            return key, False, f"{data['status']} - {data['detail']}"
-        return key, True, ""
+    if not selected_actions:
+        return "Error: No fields to update"
 
-    results = await asyncio.gather(*[_update_one(item) for item in update_list])
+    data = await jira_request(
+        "POST",
+        "/rest/api/3/bulk/issues/fields",
+        json={
+            "selectedActions": selected_actions,
+            "selectedIssueIdsOrKeys": keys,
+            "sendBulkNotification": send_notification,
+            "editedFieldsInput": edited_fields,
+        },
+    )
+    if data.get("error"):
+        return f"Error: {data['status']} - {data['detail']}"
 
-    success = [(k, msg) for k, ok, msg in results if ok]
-    failed = [(k, msg) for k, ok, msg in results if not ok]
-
-    lines = [f"Updated {len(success)} / {len(results)} issues:"]
-    for key, _ in success:
-        lines.append(f"- [{key}] ✅")
-    if failed:
-        for key, msg in failed:
-            lines.append(f"- [{key}] ❌ {msg}")
-    return "\n".join(lines)
+    task_id = data.get("taskId", "?")
+    return f"Bulk update submitted (taskId: {task_id}, {len(keys)} issues)"
