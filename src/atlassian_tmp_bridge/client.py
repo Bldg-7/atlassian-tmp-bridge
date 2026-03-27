@@ -5,7 +5,7 @@ import os
 
 import httpx
 
-JIRA_DOMAIN = os.environ.get("JIRA_DOMAIN", "")
+JIRA_DOMAIN = os.environ.get("JIRA_DOMAIN", "").removeprefix("https://").removeprefix("http://").rstrip("/")
 JIRA_EMAIL = os.environ.get("JIRA_EMAIL", "")
 JIRA_API_TOKEN = os.environ.get("JIRA_API_TOKEN", "")
 
