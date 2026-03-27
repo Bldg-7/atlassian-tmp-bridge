@@ -1,7 +1,7 @@
 [project]
 name = "atlassian-tmp-bridge"
 version = "0.2.0"
-description = "Jira attachment download MCP server"
+description = "Jira Cloud MCP server — issues, comments, attachments, transitions, and bulk operations"
 requires-python = ">=3.10"
 dependencies = [
     "mcp>=1.26.0",

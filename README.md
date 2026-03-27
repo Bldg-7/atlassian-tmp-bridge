@@ -1,10 +1,10 @@
 # atlassian-tmp-bridge
 
-Jira attachment download MCP server. Clone/build/install 없이 `uvx`로 바로 실행 가능.
+Jira Cloud MCP server. Issues, comments, attachments, transitions, bulk operations. Clone/build/install 없이 `uvx`로 바로 실행 가능.
 
 ## Why?
 
-[공식 Atlassian MCP 서버](https://github.com/atlassian/atlassian-mcp-server)는 Jira 이슈의 첨부파일 메타데이터는 조회할 수 있지만, **실제 파일을 다운로드하는 tool이 없습니다** ([#15](https://github.com/atlassian/atlassian-mcp-server/issues/15)). 이 서버는 해당 기능을 보완합니다.
+[공식 Atlassian MCP 서버](https://github.com/atlassian/atlassian-mcp-server)는 이슈 조회와 검색은 가능하지만, 첨부파일 다운로드([#15](https://github.com/atlassian/atlassian-mcp-server/issues/15)), 이슈 생성/수정/삭제, 상태 전환, 벌크 작업 등 **쓰기 작업이 제한적**입니다. 이 서버는 해당 기능들을 보완합니다.
 
 ## Requirements
 
@@ -16,7 +16,7 @@ Jira attachment download MCP server. Clone/build/install 없이 `uvx`로 바로 
 ### Claude Code
 
 ```bash
-claude mcp add jira-attachments \
+claude mcp add jira-bridge \
   -e JIRA_DOMAIN=your-org.atlassian.net \
   -e JIRA_EMAIL=your@email.com \
   -e JIRA_API_TOKEN=your_token \
@@ -28,7 +28,7 @@ claude mcp add jira-attachments \
 ```json
 {
   "mcpServers": {
-    "jira-attachments": {
+    "jira-bridge": {
       "command": "uvx",
       "args": ["--from", "git+https://github.com/Bldg-7/atlassian-tmp-bridge", "serve"],
       "env": {
@@ -43,52 +43,53 @@ claude mcp add jira-attachments \
 
 ## Tools
 
-### `list_attachments`
+### Issues
 
-Jira 이슈에 첨부된 파일 목록을 조회합니다.
+| Tool | Description |
+|------|-------------|
+| `get_issue` | 이슈 상세 조회 (summary, status, assignee, description 등) |
+| `search_issues` | JQL로 이슈 검색 (페이지네이션 지원) |
+| `count_issues` | JQL 쿼리 매칭 이슈 수 조회 |
+| `create_issue` | 이슈 생성 |
+| `update_issue` | 이슈 필드 수정 |
+| `delete_issue` | 이슈 삭제 |
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `issue_key` | string | Yes | Jira 이슈 키 (e.g. `PROJ-123`) |
+### Comments
 
-**Returns**: 첨부파일 목록 (ID, 파일명, MIME type, 크기)
+| Tool | Description |
+|------|-------------|
+| `get_comments` | 이슈의 댓글 목록 조회 |
+| `add_comment` | 댓글 추가 |
+| `update_comment` | 댓글 수정 |
+| `delete_comment` | 댓글 삭제 |
 
-```
-Attachments on PROJ-123:
+### Attachments
 
-- [10001] screenshot.png (image/png, 245760 bytes)
-- [10002] spec.pdf (application/pdf, 1048576 bytes)
-```
+| Tool | Description |
+|------|-------------|
+| `list_attachments` | 이슈의 첨부파일 목록 조회 |
+| `download_attachment` | 첨부파일 다운로드 (base64 이미지로 반환) |
+| `upload_attachment` | 파일을 이슈에 첨부 |
 
-### `download_attachment`
+### Transitions
 
-첨부파일을 다운로드하여 base64 인코딩된 이미지로 반환합니다.
+| Tool | Description |
+|------|-------------|
+| `get_transitions` | 이슈의 가능한 상태 전환 목록 조회 |
+| `transition_issue` | 이슈 상태 전환 (코멘트 첨부 가능) |
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `attachment_id` | string | Yes | `list_attachments`에서 조회한 첨부파일 ID |
+### Bulk Operations
 
-**Returns**: base64 이미지 (실제 MIME type 반영)
-
-## Usage Flow
-
-```
-1. list_attachments("PROJ-123")    → 첨부파일 목록 확인
-2. download_attachment("10001")     → 이미지 다운로드
-```
+| Tool | Description |
+|------|-------------|
+| `bulk_create_issues` | 이슈 일괄 생성 (최대 50개) |
+| `bulk_update_issues` | 이슈 일괄 수정 (최대 1000개, priority/labels/description) |
 
 ## Authentication
 
 Jira Cloud의 [개인 API Token](https://id.atlassian.com/manage-profile/security/api-tokens)을 사용합니다. Basic Auth (`email:api_token`)로 인증하며, OAuth와 달리 토큰 만료/재인증 문제가 없습니다.
 
-필요 권한: 해당 프로젝트의 **Browse projects** 권한만 있으면 됩니다.
-
-## With Official Atlassian MCP
-
-공식 MCP 서버와 병행하여 사용할 수 있습니다:
-
-- 이슈 조회, 검색, 코멘트 등 -> 공식 Atlassian MCP
-- 첨부파일 다운로드 -> 이 서버
+필요 권한: 해당 프로젝트의 **Browse projects** 권한 (조회), **Edit issues** 권한 (수정/생성) 등 작업에 맞는 프로젝트 권한이 필요합니다.
 
 ## License
 
