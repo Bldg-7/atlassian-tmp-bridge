@@ -39,7 +39,7 @@ async def jira_request(
             except Exception:
                 err = resp.text
             return {"error": True, "status": resp.status_code, "detail": err}
-        if resp.status_code == 204:
+        if resp.status_code == 204 or not resp.content:
             return {}
         return resp.json()
 
