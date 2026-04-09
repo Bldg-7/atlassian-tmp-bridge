@@ -122,23 +122,27 @@ async def create_issue(
     assignee: str = "",
     priority: str = "",
     labels: str = "",
+    parent_key: str = "",
 ) -> str:
-    """Create a new Jira issue.
+    """Create a new Jira issue. Also used to create subtasks by specifying parent_key.
 
     Args:
         project_key: Project key (e.g. PROJ)
         summary: Issue title
-        issue_type: Issue type name (default: Task)
+        issue_type: Issue type name (default: Task). Use a subtask type (e.g. Sub-task) when creating subtasks.
         description: Issue description (plain text)
         assignee: Assignee account ID
         priority: Priority name (e.g. High, Medium, Low)
         labels: Comma-separated labels
+        parent_key: Parent issue key for creating subtasks (e.g. PROJ-123)
     """
     fields: dict = {
         "project": {"key": project_key},
         "summary": summary,
         "issuetype": {"name": issue_type},
     }
+    if parent_key:
+        fields["parent"] = {"key": parent_key}
     if description:
         fields["description"] = text_to_adf(description)
     if assignee:

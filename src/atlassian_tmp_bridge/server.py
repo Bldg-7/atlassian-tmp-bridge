@@ -9,6 +9,7 @@ import atlassian_tmp_bridge.attachments  # noqa: F401
 import atlassian_tmp_bridge.transitions  # noqa: F401
 import atlassian_tmp_bridge.bulk  # noqa: F401
 import atlassian_tmp_bridge.projects  # noqa: F401
+import atlassian_tmp_bridge.links  # noqa: F401
 
 
 async def serve():
