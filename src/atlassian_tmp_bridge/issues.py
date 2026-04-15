@@ -4,7 +4,7 @@ from .adf import adf_to_text, text_to_adf
 from .app import mcp
 from .client import jira_request
 
-DEFAULT_FIELDS = "summary,status,assignee,reporter,priority,labels,description,issuetype,created,updated"
+DEFAULT_FIELDS = "summary,status,assignee,reporter,priority,labels,description,issuetype,created,updated,issuelinks,parent,subtasks"
 
 
 def _format_issue(issue: dict) -> str:
@@ -29,6 +29,42 @@ def _format_issue(issue: dict) -> str:
         f"라벨: {labels}",
         f"Created: {created} | Updated: {updated}",
     ]
+
+    parent = f.get("parent")
+    if parent:
+        p_key = parent.get("key", "")
+        p_summary = (parent.get("fields") or {}).get("summary", "")
+        lines.append(f"상위: [{p_key}] {p_summary}")
+
+    subtasks = f.get("subtasks") or []
+    if subtasks:
+        lines.append("하위 이슈:")
+        for st in subtasks:
+            st_key = st.get("key", "")
+            st_fields = st.get("fields") or {}
+            st_summary = st_fields.get("summary", "")
+            st_status = (st_fields.get("status") or {}).get("name", "?")
+            lines.append(f"  - [{st_key}] {st_summary} ({st_status})")
+
+    links = f.get("issuelinks") or []
+    if links:
+        lines.append("연결된 이슈:")
+        for link in links:
+            link_type = link.get("type") or {}
+            if "outwardIssue" in link:
+                direction = link_type.get("outward", "relates to")
+                other = link["outwardIssue"]
+            elif "inwardIssue" in link:
+                direction = link_type.get("inward", "relates to")
+                other = link["inwardIssue"]
+            else:
+                continue
+            o_key = other.get("key", "")
+            o_fields = other.get("fields") or {}
+            o_summary = o_fields.get("summary", "")
+            o_status = (o_fields.get("status") or {}).get("name", "?")
+            lines.append(f"  - {direction} [{o_key}] {o_summary} ({o_status})")
+
     if description:
         lines.append(f"\n설명:\n{description}")
     return "\n".join(lines)
