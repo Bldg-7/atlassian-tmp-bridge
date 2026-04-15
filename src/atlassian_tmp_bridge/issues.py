@@ -63,7 +63,8 @@ def _format_issue(issue: dict) -> str:
             o_fields = other.get("fields") or {}
             o_summary = o_fields.get("summary", "")
             o_status = (o_fields.get("status") or {}).get("name", "?")
-            lines.append(f"  - {direction} [{o_key}] {o_summary} ({o_status})")
+            link_id = link.get("id", "")
+            lines.append(f"  - (link_id={link_id}) {direction} [{o_key}] {o_summary} ({o_status})")
 
     if description:
         lines.append(f"\nDescription:\n{description}")
