@@ -24,9 +24,9 @@ def _format_issue(issue: dict) -> str:
 
     lines = [
         f"[{key}] {summary}",
-        f"유형: {issue_type} | 상태: {status} | 우선순위: {priority}",
-        f"담당자: {assignee} | 보고자: {reporter}",
-        f"라벨: {labels}",
+        f"Type: {issue_type} | Status: {status} | Priority: {priority}",
+        f"Assignee: {assignee} | Reporter: {reporter}",
+        f"Labels: {labels}",
         f"Created: {created} | Updated: {updated}",
     ]
 
@@ -34,11 +34,11 @@ def _format_issue(issue: dict) -> str:
     if parent:
         p_key = parent.get("key", "")
         p_summary = (parent.get("fields") or {}).get("summary", "")
-        lines.append(f"상위: [{p_key}] {p_summary}")
+        lines.append(f"Parent: [{p_key}] {p_summary}")
 
     subtasks = f.get("subtasks") or []
     if subtasks:
-        lines.append("하위 이슈:")
+        lines.append("Subtasks:")
         for st in subtasks:
             st_key = st.get("key", "")
             st_fields = st.get("fields") or {}
@@ -48,7 +48,7 @@ def _format_issue(issue: dict) -> str:
 
     links = f.get("issuelinks") or []
     if links:
-        lines.append("연결된 이슈:")
+        lines.append("Linked issues:")
         for link in links:
             link_type = link.get("type") or {}
             if "outwardIssue" in link:
@@ -66,7 +66,7 @@ def _format_issue(issue: dict) -> str:
             lines.append(f"  - {direction} [{o_key}] {o_summary} ({o_status})")
 
     if description:
-        lines.append(f"\n설명:\n{description}")
+        lines.append(f"\nDescription:\n{description}")
     return "\n".join(lines)
 
 
@@ -144,7 +144,7 @@ async def search_issues(jql: str, max_results: int = 20, next_page_token: str = 
 
     token = data.get("nextPageToken")
     if token:
-        lines.append(f"\n다음 페이지 토큰: {token}")
+        lines.append(f"\nNext page token: {token}")
 
     return "\n".join(lines)
 
