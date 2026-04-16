@@ -7,6 +7,39 @@ from .client import jira_request
 DEFAULT_FIELDS = "summary,status,assignee,reporter,priority,labels,description,issuetype,created,updated,issuelinks,parent,subtasks"
 
 
+KNOWN_FIELDS = {
+    "summary", "status", "assignee", "reporter", "priority", "labels",
+    "description", "issuetype", "created", "updated", "issuelinks",
+    "parent", "subtasks",
+}
+
+
+def _format_custom_value(value: object) -> str:
+    """Format a custom field value to a readable string."""
+    if value is None:
+        return "None"
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    if isinstance(value, list):
+        parts = [_format_custom_value(item) for item in value]
+        return ", ".join(parts)
+    if isinstance(value, dict):
+        # ADF document
+        if value.get("type") == "doc" and "content" in value:
+            return adf_to_text(value)
+        # Common Jira object patterns
+        if "name" in value:
+            return value["name"]
+        if "displayName" in value:
+            return value["displayName"]
+        if "value" in value:
+            return str(value["value"])
+        return str(value)
+    return str(value)
+
+
 def _format_issue(issue: dict) -> str:
     key = issue["key"]
     f = issue.get("fields", {})
@@ -65,6 +98,13 @@ def _format_issue(issue: dict) -> str:
             o_status = (o_fields.get("status") or {}).get("name", "?")
             link_id = link.get("id", "")
             lines.append(f"  - (link_id={link_id}) {direction} [{o_key}] {o_summary} ({o_status})")
+
+    # Custom / extra fields
+    extra = {k: v for k, v in f.items() if k not in KNOWN_FIELDS and v is not None}
+    if extra:
+        lines.append("\nCustom fields:")
+        for field_name, value in extra.items():
+            lines.append(f"  {field_name}: {_format_custom_value(value)}")
 
     if description:
         lines.append(f"\nDescription:\n{description}")
