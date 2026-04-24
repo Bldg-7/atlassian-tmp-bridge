@@ -3,6 +3,7 @@
 from .adf import adf_to_text, markdown_to_adf
 from .app import mcp
 from .client import jira_request
+from .users import resolve_account_id
 
 DEFAULT_FIELDS = "summary,status,assignee,reporter,priority,labels,description,issuetype,created,updated,issuelinks,parent,subtasks"
 
@@ -208,7 +209,7 @@ async def create_issue(
         summary: Issue title
         issue_type: Issue type name (default: Task). Use a subtask type (e.g. Sub-task) when creating subtasks.
         description: Issue description (Markdown — CommonMark + GFM tables/strikethrough)
-        assignee: Assignee account ID
+        assignee: Assignee accountId, or "me" for the authenticated user
         priority: Priority name (e.g. High, Medium, Low)
         labels: Comma-separated labels
         parent_key: Parent issue key for creating subtasks (e.g. PROJ-123)
@@ -223,7 +224,10 @@ async def create_issue(
     if description:
         fields["description"] = markdown_to_adf(description)
     if assignee:
-        fields["assignee"] = {"accountId": assignee}
+        try:
+            fields["assignee"] = {"accountId": await resolve_account_id(assignee)}
+        except RuntimeError as e:
+            return f"Error resolving assignee: {e}"
     if priority:
         fields["priority"] = {"name": priority}
     if labels:
@@ -250,7 +254,7 @@ async def update_issue(
         issue_key: Jira issue key (e.g. PROJ-123)
         summary: New summary (leave empty to skip)
         description: New description in Markdown (leave empty to skip)
-        assignee: New assignee account ID (leave empty to skip)
+        assignee: New assignee accountId, or "me" for the authenticated user (leave empty to skip)
         priority: New priority name (leave empty to skip)
         labels: Comma-separated labels (leave empty to skip)
     """
@@ -260,7 +264,10 @@ async def update_issue(
     if description:
         fields["description"] = markdown_to_adf(description)
     if assignee:
-        fields["assignee"] = {"accountId": assignee}
+        try:
+            fields["assignee"] = {"accountId": await resolve_account_id(assignee)}
+        except RuntimeError as e:
+            return f"Error resolving assignee: {e}"
     if priority:
         fields["priority"] = {"name": priority}
     if labels:

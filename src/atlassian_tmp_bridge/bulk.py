@@ -5,6 +5,7 @@ import json
 from .adf import markdown_to_adf
 from .app import mcp
 from .client import jira_request
+from .users import resolve_account_id
 
 
 @mcp.tool()
@@ -14,7 +15,7 @@ async def bulk_create_issues(project_key: str, issue_type: str, items: str) -> s
     Args:
         project_key: Project key (e.g. PROJ)
         issue_type: Issue type name (e.g. Task, Bug, Story)
-        items: JSON array of objects with at least "summary". Optional: "description", "priority", "labels", "assignee".
+        items: JSON array of objects with at least "summary". Optional: "description", "priority", "labels", "assignee" (accountId or "me").
                Example: [{"summary": "Task 1"}, {"summary": "Task 2", "priority": "High"}]
     """
     try:
@@ -42,7 +43,10 @@ async def bulk_create_issues(project_key: str, issue_type: str, items: str) -> s
         if item.get("labels"):
             fields["labels"] = item["labels"] if isinstance(item["labels"], list) else [item["labels"]]
         if item.get("assignee"):
-            fields["assignee"] = {"accountId": item["assignee"]}
+            try:
+                fields["assignee"] = {"accountId": await resolve_account_id(item["assignee"])}
+            except RuntimeError as e:
+                return f"Error resolving assignee: {e}"
         issue_updates.append({"fields": fields})
 
     data = await jira_request(
