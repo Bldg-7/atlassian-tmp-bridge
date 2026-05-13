@@ -1,6 +1,6 @@
 """Jira comment tools."""
 
-from .adf import adf_to_text, text_to_adf
+from .adf import adf_to_text, markdown_to_adf
 from .app import mcp
 from .client import jira_request
 
@@ -41,12 +41,12 @@ async def add_comment(issue_key: str, body: str) -> str:
 
     Args:
         issue_key: Jira issue key (e.g. PROJ-123)
-        body: Comment text (plain text)
+        body: Comment body (Markdown — CommonMark + GFM tables/strikethrough)
     """
     data = await jira_request(
         "POST",
         f"/rest/api/3/issue/{issue_key}/comment",
-        json={"body": text_to_adf(body)},
+        json={"body": markdown_to_adf(body)},
     )
     if data.get("error"):
         return f"Error: {data['status']} - {data['detail']}"
@@ -60,12 +60,12 @@ async def update_comment(issue_key: str, comment_id: str, body: str) -> str:
     Args:
         issue_key: Jira issue key (e.g. PROJ-123)
         comment_id: Comment ID from get_comments
-        body: New comment text (plain text)
+        body: New comment body in Markdown
     """
     data = await jira_request(
         "PUT",
         f"/rest/api/3/issue/{issue_key}/comment/{comment_id}",
-        json={"body": text_to_adf(body)},
+        json={"body": markdown_to_adf(body)},
     )
     if data.get("error"):
         return f"Error: {data['status']} - {data['detail']}"

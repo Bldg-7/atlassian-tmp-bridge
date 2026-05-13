@@ -85,6 +85,12 @@ claude mcp add jira-bridge \
 | `bulk_create_issues` | 이슈 일괄 생성 (최대 50개) |
 | `bulk_update_issues` | 이슈 일괄 수정 (최대 1000개, priority/labels/description) |
 
+## Markdown 입력
+
+`create_issue` / `update_issue`의 `description`, `add_comment` / `update_comment`의 `body`, `transition_issue`의 `comment`, `bulk_create_issues` / `bulk_update_issues`의 description 은 **Markdown** 으로 작성합니다 (CommonMark + GFM 표/취소선). Heading, 리스트, 코드 블록(언어 지정), 인라인 코드, 강조, 링크, 인용, 표, 구분선이 ADF 노드로 변환되어 Jira WebUI에서 그대로 렌더링됩니다.
+
+마크다운 문법이 없는 평문도 그대로 paragraph 노드로 들어가므로 기존 호출자는 변경 없이 작동합니다.
+
 ## Authentication
 
 Jira Cloud의 [개인 API Token](https://id.atlassian.com/manage-profile/security/api-tokens)을 사용합니다. Basic Auth (`email:api_token`)로 인증하며, OAuth와 달리 토큰 만료/재인증 문제가 없습니다.

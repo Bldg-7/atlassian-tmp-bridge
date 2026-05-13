@@ -1,6 +1,6 @@
 """Jira issue tools."""
 
-from .adf import adf_to_text, text_to_adf
+from .adf import adf_to_text, markdown_to_adf
 from .app import mcp
 from .client import jira_request
 
@@ -207,7 +207,7 @@ async def create_issue(
         project_key: Project key (e.g. PROJ)
         summary: Issue title
         issue_type: Issue type name (default: Task). Use a subtask type (e.g. Sub-task) when creating subtasks.
-        description: Issue description (plain text)
+        description: Issue description (Markdown — CommonMark + GFM tables/strikethrough)
         assignee: Assignee account ID
         priority: Priority name (e.g. High, Medium, Low)
         labels: Comma-separated labels
@@ -221,7 +221,7 @@ async def create_issue(
     if parent_key:
         fields["parent"] = {"key": parent_key}
     if description:
-        fields["description"] = text_to_adf(description)
+        fields["description"] = markdown_to_adf(description)
     if assignee:
         fields["assignee"] = {"accountId": assignee}
     if priority:
@@ -249,7 +249,7 @@ async def update_issue(
     Args:
         issue_key: Jira issue key (e.g. PROJ-123)
         summary: New summary (leave empty to skip)
-        description: New description in plain text (leave empty to skip)
+        description: New description in Markdown (leave empty to skip)
         assignee: New assignee account ID (leave empty to skip)
         priority: New priority name (leave empty to skip)
         labels: Comma-separated labels (leave empty to skip)
@@ -258,7 +258,7 @@ async def update_issue(
     if summary:
         fields["summary"] = summary
     if description:
-        fields["description"] = text_to_adf(description)
+        fields["description"] = markdown_to_adf(description)
     if assignee:
         fields["assignee"] = {"accountId": assignee}
     if priority:
