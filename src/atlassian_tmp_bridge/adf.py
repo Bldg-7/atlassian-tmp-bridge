@@ -1,5 +1,8 @@
 """Atlassian Document Format (ADF) <-> Markdown conversion."""
 
+import re
+import uuid
+
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
@@ -28,6 +31,15 @@ def _convert_nodes(nodes: list) -> str:
             for item in content:
                 item_text = _convert_nodes(item.get("content", []))
                 parts.append(f"- {item_text}")
+
+        elif node_type == "taskList":
+            for item in content:
+                if item.get("type") != "taskItem":
+                    continue
+                state = (item.get("attrs") or {}).get("state", "TODO")
+                marker = "[x]" if state == "DONE" else "[ ]"
+                item_text = _convert_inline(item.get("content", []))
+                parts.append(f"- {marker} {item_text}".rstrip())
 
         elif node_type == "orderedList":
             for i, item in enumerate(content, 1):
@@ -175,10 +187,16 @@ def _tokens_to_blocks(tokens: list[Token]) -> list[dict]:
 
         elif t == "bullet_list_open":
             j = _find_close(tokens, i, "bullet_list_open", "bullet_list_close")
-            nodes.append({
-                "type": "bulletList",
-                "content": _list_items(tokens[i + 1 : j]),
-            })
+            items = _list_items(tokens[i + 1 : j])
+            task_items = _try_task_list(items)
+            if task_items is not None:
+                nodes.append({
+                    "type": "taskList",
+                    "attrs": {"localId": str(uuid.uuid4())},
+                    "content": task_items,
+                })
+            else:
+                nodes.append({"type": "bulletList", "content": items})
             i = j + 1
 
         elif t == "ordered_list_open":
@@ -262,6 +280,46 @@ def _list_items(tokens: list[Token]) -> list[dict]:
         else:
             i += 1
     return items
+
+
+_TASK_RE = re.compile(r"^\[([ xX])\](\s+|$)")
+
+
+def _try_task_list(items: list[dict]) -> list[dict] | None:
+    """Convert listItem nodes to taskItem nodes if every item is a GFM task.
+
+    Returns None when any item is not a recognizable task — caller should keep
+    the original bulletList. Items must have a single paragraph block whose
+    first text node starts with `[ ]`, `[x]`, or `[X]`.
+    """
+    out: list[dict] = []
+    for item in items:
+        content = item.get("content") or []
+        if len(content) != 1 or content[0].get("type") != "paragraph":
+            return None
+        inline = content[0].get("content") or []
+        if not inline or inline[0].get("type") != "text":
+            return None
+        first_text = inline[0].get("text", "")
+        m = _TASK_RE.match(first_text)
+        if not m:
+            return None
+        state = "DONE" if m.group(1).lower() == "x" else "TODO"
+        remaining = first_text[m.end():]
+        if remaining:
+            new_first = dict(inline[0])
+            new_first["text"] = remaining
+            new_inline = [new_first] + list(inline[1:])
+        else:
+            new_inline = list(inline[1:])
+        task: dict = {
+            "type": "taskItem",
+            "attrs": {"localId": str(uuid.uuid4()), "state": state},
+        }
+        if new_inline:
+            task["content"] = new_inline
+        out.append(task)
+    return out if out else None
 
 
 def _table_to_node(tokens: list[Token]) -> dict:
