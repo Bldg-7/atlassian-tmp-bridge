@@ -2,7 +2,7 @@
 
 import json
 
-from .adf import text_to_adf
+from .adf import markdown_to_adf
 from .app import mcp
 from .client import jira_request
 
@@ -36,7 +36,7 @@ async def bulk_create_issues(project_key: str, issue_type: str, items: str) -> s
             "summary": item["summary"],
         }
         if item.get("description"):
-            fields["description"] = text_to_adf(item["description"])
+            fields["description"] = markdown_to_adf(item["description"])
         if item.get("priority"):
             fields["priority"] = {"name": item["priority"]}
         if item.get("labels"):
@@ -80,7 +80,7 @@ async def bulk_update_issues(
         priority_id: Priority ID to set on all issues (e.g. "1" for Highest)
         labels: Comma-separated labels (e.g. "bug,urgent")
         label_action: How to apply labels: ADD, REMOVE, or REPLACE (default ADD)
-        description: New description for all issues (plain text)
+        description: New description in Markdown for all issues
         send_notification: Send email notification for changes (default false)
     """
     keys = [k.strip() for k in issue_keys.split(",") if k.strip()]
@@ -109,7 +109,7 @@ async def bulk_update_issues(
         selected_actions.append("description")
         edited_fields["richTextFields"] = [{
             "fieldId": "description",
-            "richText": {"adfValue": text_to_adf(description)},
+            "richText": {"adfValue": markdown_to_adf(description)},
         }]
 
     if not selected_actions:

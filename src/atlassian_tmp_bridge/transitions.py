@@ -1,6 +1,6 @@
 """Jira transition tools."""
 
-from .adf import text_to_adf
+from .adf import markdown_to_adf
 from .app import mcp
 from .client import jira_request
 
@@ -39,7 +39,7 @@ async def transition_issue(issue_key: str, transition_id: str, comment: str = ""
     body: dict = {"transition": {"id": transition_id}}
     if comment:
         body["update"] = {
-            "comment": [{"add": {"body": text_to_adf(comment)}}]
+            "comment": [{"add": {"body": markdown_to_adf(comment)}}]
         }
 
     data = await jira_request(
