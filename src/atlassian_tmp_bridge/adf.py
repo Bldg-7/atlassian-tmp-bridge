@@ -75,7 +75,7 @@ def _convert_inline(nodes: list) -> str:
     for node in nodes:
         node_type = node.get("type", "")
         if node_type == "text":
-            parts.append(node.get("text", ""))
+            parts.append(_wrap_marks(node.get("text", ""), node.get("marks") or []))
         elif node_type == "mention":
             parts.append(f"@{node.get('attrs', {}).get('text', 'unknown')}")
         elif node_type == "emoji":
@@ -89,6 +89,32 @@ def _convert_inline(nodes: list) -> str:
             if text:
                 parts.append(text)
     return "".join(parts)
+
+
+def _wrap_marks(text: str, marks: list) -> str:
+    """Re-emit ADF inline marks as Markdown syntax.
+
+    Wrapping order is innermost → outermost so that a re-parse produces the
+    same mark set. `code` is innermost because Markdown code spans don't
+    re-parse their contents; `link` is outermost because the link text can
+    carry other formatting.
+    """
+    if not text or not marks:
+        return text
+    by_type = {m.get("type"): m for m in marks if isinstance(m, dict)}
+    if "code" in by_type:
+        text = f"`{text}`"
+    if "strike" in by_type:
+        text = f"~~{text}~~"
+    if "em" in by_type:
+        text = f"*{text}*"
+    if "strong" in by_type:
+        text = f"**{text}**"
+    if "link" in by_type:
+        href = (by_type["link"].get("attrs") or {}).get("href", "")
+        if href:
+            text = f"[{text}]({href})"
+    return text
 
 
 def _convert_table(rows: list) -> str:
