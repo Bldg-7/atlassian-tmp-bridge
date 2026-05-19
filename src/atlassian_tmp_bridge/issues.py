@@ -5,14 +5,10 @@ from .app import mcp
 from .client import jira_request
 from .users import resolve_account_id
 
-DEFAULT_FIELDS = "summary,status,assignee,reporter,priority,labels,description,issuetype,created,updated,issuelinks,parent,subtasks"
-
-
-KNOWN_FIELDS = {
-    "summary", "status", "assignee", "reporter", "priority", "labels",
-    "description", "issuetype", "created", "updated", "issuelinks",
-    "parent", "subtasks",
-}
+# "*all" so custom fields surface without the caller having to know their
+# IDs (which vary per project/issue type). The header renders a fixed set of
+# system fields; everything else is filtered to customfield_* at format time.
+DEFAULT_FIELDS = "*all"
 
 
 def _format_custom_value(value: object) -> str:
@@ -100,12 +96,17 @@ def _format_issue(issue: dict) -> str:
             link_id = link.get("id", "")
             lines.append(f"  - (link_id={link_id}) {direction} [{o_key}] {o_summary} ({o_status})")
 
-    # Custom / extra fields
-    extra = {k: v for k, v in f.items() if k not in KNOWN_FIELDS and v is not None}
+    # Custom fields. With fields="*all" the response carries many system
+    # fields too; only customfield_* belong under this label. `names` (from
+    # ?expand=names) maps each id to its human-readable label.
+    names = issue.get("names") or {}
+    extra = {k: v for k, v in f.items() if k.startswith("customfield_") and v is not None}
     if extra:
         lines.append("\nCustom fields:")
-        for field_name, value in extra.items():
-            lines.append(f"  {field_name}: {_format_custom_value(value)}")
+        for field_id, value in extra.items():
+            label = names.get(field_id, field_id)
+            prefix = f"{label} ({field_id})" if label != field_id else field_id
+            lines.append(f"  {prefix}: {_format_custom_value(value)}")
 
     if description:
         lines.append(f"\nDescription:\n{description}")
@@ -128,9 +129,15 @@ async def get_issue(issue_key: str, fields: str = DEFAULT_FIELDS) -> str:
 
     Args:
         issue_key: Jira issue key (e.g. PROJ-123)
-        fields: Comma-separated field names (default: core fields)
+        fields: Comma-separated field names. Default "*all" returns every
+            field including custom fields (shown with their readable names).
+            Pass an explicit list (e.g. "summary,status") to narrow.
     """
-    data = await jira_request("GET", f"/rest/api/3/issue/{issue_key}", params={"fields": fields})
+    data = await jira_request(
+        "GET",
+        f"/rest/api/3/issue/{issue_key}",
+        params={"fields": fields, "expand": "names"},
+    )
     if data.get("error"):
         return f"Error: {data['status']} - {data['detail']}"
     return _format_issue(data)
