@@ -215,7 +215,8 @@ async def create_issue(
         project_key: Project key (e.g. PROJ)
         summary: Issue title
         issue_type: Issue type name (default: Task). Use a subtask type (e.g. Sub-task) when creating subtasks.
-        description: Issue description (Markdown — CommonMark + GFM tables/strikethrough)
+        description: Issue description (Markdown — CommonMark + GFM tables/strikethrough).
+                     Mention users with @[accountId:Display Name] (find accountIds via search_users).
         assignee: Assignee accountId, or "me" for the authenticated user
         priority: Priority name (e.g. High, Medium, Low)
         labels: Comma-separated labels
@@ -260,7 +261,8 @@ async def update_issue(
     Args:
         issue_key: Jira issue key (e.g. PROJ-123)
         summary: New summary (leave empty to skip)
-        description: New description in Markdown (leave empty to skip)
+        description: New description in Markdown (leave empty to skip).
+                     Mention users with @[accountId:Display Name].
         assignee: New assignee accountId, or "me" for the authenticated user (leave empty to skip)
         priority: New priority name (leave empty to skip)
         labels: Comma-separated labels (leave empty to skip)

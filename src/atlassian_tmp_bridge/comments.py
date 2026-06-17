@@ -41,7 +41,8 @@ async def add_comment(issue_key: str, body: str) -> str:
 
     Args:
         issue_key: Jira issue key (e.g. PROJ-123)
-        body: Comment body (Markdown — CommonMark + GFM tables/strikethrough)
+        body: Comment body (Markdown — CommonMark + GFM tables/strikethrough).
+              Mention users with @[accountId:Display Name] (find accountIds via search_users).
     """
     data = await jira_request(
         "POST",
@@ -60,7 +61,7 @@ async def update_comment(issue_key: str, comment_id: str, body: str) -> str:
     Args:
         issue_key: Jira issue key (e.g. PROJ-123)
         comment_id: Comment ID from get_comments
-        body: New comment body in Markdown
+        body: New comment body in Markdown. Mention users with @[accountId:Display Name].
     """
     data = await jira_request(
         "PUT",

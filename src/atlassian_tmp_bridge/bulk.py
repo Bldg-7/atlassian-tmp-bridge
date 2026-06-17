@@ -84,7 +84,8 @@ async def bulk_update_issues(
         priority_id: Priority ID to set on all issues (e.g. "1" for Highest)
         labels: Comma-separated labels (e.g. "bug,urgent")
         label_action: How to apply labels: ADD, REMOVE, or REPLACE (default ADD)
-        description: New description in Markdown for all issues
+        description: New description in Markdown for all issues.
+                     Mention users with @[accountId:Display Name].
         send_notification: Send email notification for changes (default false)
     """
     keys = [k.strip() for k in issue_keys.split(",") if k.strip()]

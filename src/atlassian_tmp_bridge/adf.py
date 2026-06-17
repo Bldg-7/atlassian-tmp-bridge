@@ -89,7 +89,13 @@ def _convert_inline(nodes: list) -> str:
         if node_type == "text":
             parts.append(_wrap_marks(node.get("text", ""), node.get("marks") or []))
         elif node_type == "mention":
-            parts.append(f"@{node.get('attrs', {}).get('text', 'unknown')}")
+            attrs = node.get("attrs", {})
+            name = (attrs.get("text") or "").lstrip("@") or "unknown"
+            mention_id = attrs.get("id")
+            if mention_id:
+                parts.append(f"@[{mention_id}:{name}]")
+            else:
+                parts.append(f"@{name}")
         elif node_type == "emoji":
             parts.append(node.get("attrs", {}).get("shortName", ""))
         elif node_type == "hardBreak":
@@ -152,6 +158,9 @@ def markdown_to_adf(text: str) -> dict:
 
     Plain text without any Markdown syntax round-trips as paragraph nodes,
     so callers can pass either rich Markdown or bare text.
+
+    `@[accountId:Display Name]` becomes an ADF mention node (except inside
+    code spans/blocks, where it stays literal).
     """
     tokens = _md.parse(text or "")
     content = _tokens_to_blocks(tokens)
@@ -381,6 +390,11 @@ def _inline_children(inline_token: Token) -> list[dict]:
     return _inline_to_nodes(inline_token.children or [])
 
 
+# Greedy first group splits on the LAST colon: account ids contain colons
+# (e.g. "557058:f581…"), display names must not.
+_MENTION_RE = re.compile(r"@\[([^\]]+):([^\]]+)\]")
+
+
 def _inline_to_nodes(tokens: list[Token]) -> list[dict]:
     nodes: list[dict] = []
     active_marks: list[dict] = []
@@ -393,10 +407,21 @@ def _inline_to_nodes(tokens: list[Token]) -> list[dict]:
             node["marks"] = [dict(m) for m in active_marks]
         nodes.append(node)
 
+    def push_text_and_mentions(text: str) -> None:
+        pos = 0
+        for m in _MENTION_RE.finditer(text):
+            push_text(text[pos : m.start()])
+            nodes.append({
+                "type": "mention",
+                "attrs": {"id": m.group(1), "text": f"@{m.group(2)}"},
+            })
+            pos = m.end()
+        push_text(text[pos:])
+
     for tok in tokens:
         t = tok.type
         if t == "text":
-            push_text(tok.content)
+            push_text_and_mentions(tok.content)
         elif t == "code_inline":
             active_marks.append({"type": "code"})
             push_text(tok.content)
