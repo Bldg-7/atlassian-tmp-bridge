@@ -52,6 +52,7 @@ claude mcp add jira-bridge \
 | `count_issues` | JQL 쿼리 매칭 이슈 수 조회 |
 | `create_issue` | 이슈 생성 |
 | `update_issue` | 이슈 필드 수정 |
+| `patch_description` | 본문(description) 부분 수정 — 정확히 일치하는 텍스트를 찾아 치환 |
 | `delete_issue` | 이슈 삭제 |
 
 ### Comments
@@ -90,6 +91,8 @@ claude mcp add jira-bridge \
 `create_issue` / `update_issue`의 `description`, `add_comment` / `update_comment`의 `body`, `transition_issue`의 `comment`, `bulk_create_issues` / `bulk_update_issues`의 description 은 **Markdown** 으로 작성합니다 (CommonMark + GFM 표/취소선). Heading, 리스트, 코드 블록(언어 지정), 인라인 코드, 강조, 링크, 인용, 표, 구분선이 ADF 노드로 변환되어 Jira WebUI에서 그대로 렌더링됩니다.
 
 마크다운 문법이 없는 평문도 그대로 paragraph 노드로 들어가므로 기존 호출자는 변경 없이 작동합니다.
+
+`patch_description`은 예외적으로 **평문**을 받습니다. Markdown 재변환 없이 저장된 ADF 문서의 텍스트 노드만 직접 치환하므로, 표·패널·미디어 등 나머지 본문은 원본 그대로 보존됩니다. 긴 본문의 일부만 고칠 때는 `update_issue`(전체 교체)보다 이 도구를 사용하세요. 단, 치환 대상 텍스트가 서식 경계(굵게/링크/코드 등)를 가로지르면 매칭되지 않습니다 — 그 경우와 구조 변경(행 추가, 블록 이동 등)은 `update_issue`로 전체 본문을 다시 작성해야 합니다.
 
 ## Authentication
 

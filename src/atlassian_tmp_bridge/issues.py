@@ -1,6 +1,6 @@
 """Jira issue tools."""
 
-from .adf import adf_to_text, markdown_to_adf
+from .adf import adf_to_text, markdown_to_adf, patch_adf_text
 from .app import mcp
 from .client import jira_request
 from .users import resolve_account_id
@@ -289,6 +289,74 @@ async def update_issue(
     if data.get("error"):
         return f"Error: {data['status']} - {data['detail']}"
     return f"Updated [{issue_key}]"
+
+
+@mcp.tool()
+async def patch_description(
+    issue_key: str,
+    old_string: str,
+    new_string: str,
+    replace_all: bool = False,
+) -> str:
+    """Replace an exact text snippet in an issue's description without rewriting the whole body.
+
+    Patches the stored ADF document directly: only the matched text changes,
+    and everything else — tables, panels, media, formatting, node types this
+    server doesn't otherwise support — is preserved untouched. Prefer this
+    over update_issue for small edits to a long description.
+
+    Both strings are plain text (no Markdown): old_string is matched against
+    the text as shown by get_issue minus Markdown syntax, and new_string is
+    inserted as-is, inheriting the formatting of the text it replaces. A match
+    cannot span a formatting boundary (e.g. start in bold and end in plain
+    text) — for such edits, or structural changes, use update_issue with the
+    full body.
+
+    Args:
+        issue_key: Jira issue key (e.g. PROJ-123)
+        old_string: Exact text to find. Must match exactly once unless replace_all is set.
+        new_string: Replacement text. Empty string deletes the matched text.
+        replace_all: Replace every occurrence instead of requiring a unique match.
+    """
+    if not old_string:
+        return "Error: old_string must not be empty"
+    if old_string == new_string:
+        return "Error: old_string and new_string are identical"
+
+    data = await jira_request(
+        "GET",
+        f"/rest/api/3/issue/{issue_key}",
+        params={"fields": "description"},
+    )
+    if data.get("error"):
+        return f"Error: {data['status']} - {data['detail']}"
+
+    description = (data.get("fields") or {}).get("description")
+    if not description:
+        return f"Error: {issue_key} has no description to patch"
+
+    patched, count = patch_adf_text(description, old_string, new_string)
+    if count == 0:
+        return (
+            "Error: old_string not found in the description. It must match the "
+            "plain text exactly and lie within a single formatted text run "
+            "(a match cannot cross a bold/link/code boundary)."
+        )
+    if count > 1 and not replace_all:
+        return (
+            f"Error: old_string matches {count} places. Include more surrounding "
+            "text to make it unique, or set replace_all=true."
+        )
+
+    result = await jira_request(
+        "PUT",
+        f"/rest/api/3/issue/{issue_key}",
+        json={"fields": {"description": patched}},
+    )
+    if result.get("error"):
+        return f"Error: {result['status']} - {result['detail']}"
+    noun = "occurrence" if count == 1 else "occurrences"
+    return f"Patched description of [{issue_key}] ({count} {noun} replaced)"
 
 
 @mcp.tool()

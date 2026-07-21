@@ -1,5 +1,6 @@
 """Atlassian Document Format (ADF) <-> Markdown conversion."""
 
+import copy
 import re
 import uuid
 
@@ -159,6 +160,49 @@ def _convert_table(rows: list) -> str:
         if i == 0:
             lines.append("|" + " --- |" * width)
     return "\n".join(lines)
+
+
+def patch_adf_text(adf: dict, old_string: str, new_string: str) -> tuple[dict, int]:
+    """Replace old_string inside the text nodes of an ADF document.
+
+    Returns (patched copy, occurrence count); the input document is not
+    modified. Only `text` node contents change — every other node survives
+    byte-for-byte, including node types the Markdown converter in this module
+    doesn't understand (panels, media, expand, …). A match must lie entirely
+    within one text node, so text spanning a mark boundary is never found.
+
+    A replacement that empties a text node removes the node (ADF forbids
+    empty text), and an inline container emptied that way drops its
+    `content` key rather than keeping an empty list.
+    """
+    doc = copy.deepcopy(adf)
+    count = 0
+
+    def walk(node: dict) -> None:
+        nonlocal count
+        if node.get("type") == "text":
+            text = node.get("text")
+            if isinstance(text, str) and old_string in text:
+                count += text.count(old_string)
+                node["text"] = text.replace(old_string, new_string)
+        children = node.get("content")
+        if not isinstance(children, list):
+            return
+        for child in children:
+            if isinstance(child, dict):
+                walk(child)
+        pruned = [
+            c for c in children
+            if not (isinstance(c, dict) and c.get("type") == "text" and c.get("text") == "")
+        ]
+        if len(pruned) != len(children):
+            if pruned:
+                node["content"] = pruned
+            else:
+                del node["content"]
+
+    walk(doc)
+    return doc, count
 
 
 # ---------------------------------------------------------------------------
