@@ -136,12 +136,28 @@ def _wrap_marks(text: str, marks: list) -> str:
 
 
 def _convert_table(rows: list) -> str:
-    lines = []
+    """Emit an ADF table as a GFM table so it survives a Markdown round-trip.
+
+    GFM requires a delimiter row (`| --- |`) after the first row; without it,
+    a re-parse turns the table into a paragraph of literal pipes. Cell text is
+    flattened to one line and its pipes escaped for the same reason.
+    """
+    if not rows:
+        return ""
+    text_rows: list[list[str]] = []
     for row in rows:
         cells = []
         for cell in row.get("content", []):
-            cells.append(_convert_nodes(cell.get("content", [])))
-        lines.append(" | ".join(cells))
+            text = _convert_nodes(cell.get("content", []))
+            cells.append(" ".join(text.split()).replace("|", "\\|"))
+        text_rows.append(cells)
+    width = max(len(cells) for cells in text_rows)
+    lines = []
+    for i, cells in enumerate(text_rows):
+        cells = cells + [""] * (width - len(cells))
+        lines.append("| " + " | ".join(cells) + " |")
+        if i == 0:
+            lines.append("|" + " --- |" * width)
     return "\n".join(lines)
 
 
