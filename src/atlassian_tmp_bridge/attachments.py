@@ -2,7 +2,7 @@
 
 import os
 
-from mcp.server.fastmcp import Image
+from mcp.server.mcpserver import Image
 
 from .app import mcp
 from .client import jira_get_binary, jira_request, jira_upload
