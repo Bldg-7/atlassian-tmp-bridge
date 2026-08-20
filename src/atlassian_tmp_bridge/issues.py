@@ -1,6 +1,6 @@
 """Jira issue tools."""
 
-from .adf import adf_to_text, markdown_to_adf, patch_adf_text
+from .adf import PatchConflict, adf_to_text, markdown_to_adf, patch_adf_markdown
 from .app import mcp
 from .client import jira_request
 from .users import resolve_account_id
@@ -298,24 +298,35 @@ async def patch_description(
     new_string: str,
     replace_all: bool = False,
 ) -> str:
-    """Replace an exact text snippet in an issue's description without rewriting the whole body.
+    """Replace an exact snippet in an issue's description without rewriting the whole body.
 
-    Patches the stored ADF document directly: only the matched text changes,
-    and everything else — tables, panels, media, formatting, node types this
-    server doesn't otherwise support — is preserved untouched. Prefer this
-    over update_issue for small edits to a long description.
+    Patches the stored ADF document directly: only the matched snippet and the
+    formatting runs it touches change, and everything else — other paragraphs,
+    tables, panels, media, node types this server doesn't otherwise support —
+    is preserved untouched. Prefer this over update_issue for small edits to a
+    long description.
 
-    Both strings are plain text (no Markdown): old_string is matched against
-    the text as shown by get_issue minus Markdown syntax, and new_string is
-    inserted as-is, inheriting the formatting of the text it replaces. A match
-    cannot span a formatting boundary (e.g. start in bold and end in plain
-    text) — for such edits, or structural changes, use update_issue with the
-    full body.
+    Both strings are Markdown, in exactly the form get_issue prints: copy
+    old_string from that output verbatim, including any **bold**, *italic*,
+    ~~strike~~, `code`, [text](url), or @[accountId:Name] syntax around or
+    inside it. A match may straddle a formatting boundary — the server widens
+    the edit to the whole runs involved and rebuilds them from new_string.
+
+    Matching is per block (paragraph, heading, list item, task item, table
+    cell, code block), so old_string cannot cross a block boundary or include a
+    block's own prefix (`# `, `- `, `- [ ] `, `| `) — though a line break
+    inside one paragraph is fine. Use update_issue with the full body for
+    structural changes such as adding rows or moving blocks.
+
+    A match that stays inside one formatting run keeps that run's formatting,
+    so replacing a word inside bold text leaves it bold. A match that spans
+    runs is formatted by new_string alone. Inside a code block both strings
+    stay literal — Markdown syntax there means nothing.
 
     Args:
         issue_key: Jira issue key (e.g. PROJ-123)
-        old_string: Exact text to find. Must match exactly once unless replace_all is set.
-        new_string: Replacement text. Empty string deletes the matched text.
+        old_string: Exact Markdown to find. Must match exactly once unless replace_all is set.
+        new_string: Replacement Markdown. Empty string deletes the matched snippet.
         replace_all: Replace every occurrence instead of requiring a unique match.
     """
     if not old_string:
@@ -335,12 +346,20 @@ async def patch_description(
     if not description:
         return f"Error: {issue_key} has no description to patch"
 
-    patched, count = patch_adf_text(description, old_string, new_string)
+    try:
+        patched, count = patch_adf_markdown(description, old_string, new_string)
+    except PatchConflict:
+        return (
+            "Error: old_string matches in overlapping ways within one formatted "
+            "run, so the edit is ambiguous. Include more surrounding text, or "
+            "rewrite the body with update_issue."
+        )
     if count == 0:
         return (
-            "Error: old_string not found in the description. It must match the "
-            "plain text exactly and lie within a single formatted text run "
-            "(a match cannot cross a bold/link/code boundary)."
+            "Error: old_string not found in the description. It must match a "
+            "single block of the Markdown that get_issue prints, character for "
+            "character, including any formatting syntax — and without the "
+            "block's own prefix (`# `, `- `, `| `) or a line break."
         )
     if count > 1 and not replace_all:
         return (
