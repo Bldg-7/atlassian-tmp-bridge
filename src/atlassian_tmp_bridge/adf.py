@@ -110,30 +110,38 @@ def _convert_inline(nodes: list) -> str:
     return "".join(parts)
 
 
-def _wrap_marks(text: str, marks: list) -> str:
-    """Re-emit ADF inline marks as Markdown syntax.
+def _mark_affixes(marks: list) -> tuple[str, str]:
+    """Return the (prefix, suffix) Markdown syntax for a set of ADF marks.
 
     Wrapping order is innermost → outermost so that a re-parse produces the
     same mark set. `code` is innermost because Markdown code spans don't
     re-parse their contents; `link` is outermost because the link text can
     carry other formatting.
     """
-    if not text or not marks:
-        return text
     by_type = {m.get("type"): m for m in marks if isinstance(m, dict)}
+    prefix = ""
+    suffix = ""
     if "code" in by_type:
-        text = f"`{text}`"
+        prefix, suffix = "`" + prefix, suffix + "`"
     if "strike" in by_type:
-        text = f"~~{text}~~"
+        prefix, suffix = "~~" + prefix, suffix + "~~"
     if "em" in by_type:
-        text = f"*{text}*"
+        prefix, suffix = "*" + prefix, suffix + "*"
     if "strong" in by_type:
-        text = f"**{text}**"
+        prefix, suffix = "**" + prefix, suffix + "**"
     if "link" in by_type:
         href = (by_type["link"].get("attrs") or {}).get("href", "")
         if href:
-            text = f"[{text}]({href})"
-    return text
+            prefix, suffix = "[" + prefix, suffix + f"]({href})"
+    return prefix, suffix
+
+
+def _wrap_marks(text: str, marks: list) -> str:
+    """Re-emit ADF inline marks as Markdown syntax."""
+    if not text or not marks:
+        return text
+    prefix, suffix = _mark_affixes(marks)
+    return f"{prefix}{text}{suffix}"
 
 
 def _convert_table(rows: list) -> str:
@@ -162,47 +170,271 @@ def _convert_table(rows: list) -> str:
     return "\n".join(lines)
 
 
-def patch_adf_text(adf: dict, old_string: str, new_string: str) -> tuple[dict, int]:
-    """Replace old_string inside the text nodes of an ADF document.
+class PatchConflict(ValueError):
+    """Two matches widened into the same formatting run, so neither can be applied."""
+
+
+# Blocks whose inline content `adf_to_text` renders as Markdown. A patch that
+# lands in one of these is matched against — and re-parsed as — Markdown.
+# `codeBlock` is deliberately excluded: its text is literal.
+_MARKDOWN_INLINE_BLOCKS = {"paragraph", "heading", "taskItem", "decisionItem"}
+
+
+def patch_adf_markdown(adf: dict, old_string: str, new_string: str) -> tuple[dict, int]:
+    """Replace a Markdown snippet inside an ADF document, preserving the rest.
 
     Returns (patched copy, occurrence count); the input document is not
-    modified. Only `text` node contents change — every other node survives
-    byte-for-byte, including node types the Markdown converter in this module
-    doesn't understand (panels, media, expand, …). A match must lie entirely
-    within one text node, so text spanning a mark boundary is never found.
+    modified. Matching happens against the same Markdown `adf_to_text` emits,
+    so `old_string` may carry formatting syntax (`**bold**`, `[text](url)`,
+    `` `code` ``, `@[id:Name]`) and may straddle a mark boundary. The change
+    range is then widened to the enclosing text runs, those runs are dropped,
+    and `new_string` is converted Markdown → ADF in their place. Everything
+    outside that range — other blocks, tables, panels, media, node types this
+    module doesn't understand — is copied through untouched.
 
-    A replacement that empties a text node removes the node (ADF forbids
-    empty text), and an inline container emptied that way drops its
-    `content` key rather than keeping an empty list.
+    A match that stays inside a single formatted run inherits that run's marks,
+    so replacing a word inside bold text keeps it bold. A match that spans runs
+    takes its formatting from `new_string` alone.
+
+    Raises PatchConflict when two matches widen into the same run.
     """
     doc = copy.deepcopy(adf)
     count = 0
 
     def walk(node: dict) -> None:
         nonlocal count
-        if node.get("type") == "text":
-            text = node.get("text")
-            if isinstance(text, str) and old_string in text:
-                count += text.count(old_string)
-                node["text"] = text.replace(old_string, new_string)
+        node_type = node.get("type")
         children = node.get("content")
         if not isinstance(children, list):
             return
+        if node_type == "codeBlock":
+            # Code is literal: Markdown syntax inside it means nothing.
+            count += _patch_literal_children(node, old_string, new_string)
+            return
+        if node_type in _MARKDOWN_INLINE_BLOCKS:
+            count += _patch_inline_block(node, old_string, new_string)
+            return
         for child in children:
-            if isinstance(child, dict):
-                walk(child)
-        pruned = [
-            c for c in children
-            if not (isinstance(c, dict) and c.get("type") == "text" and c.get("text") == "")
-        ]
-        if len(pruned) != len(children):
-            if pruned:
-                node["content"] = pruned
-            else:
-                del node["content"]
+            if not isinstance(child, dict):
+                continue
+            if child.get("type") == "text":
+                # Bare text under a block we don't model — patch it verbatim.
+                count += _patch_literal_children(node, old_string, new_string)
+                return
+            walk(child)
 
     walk(doc)
     return doc, count
+
+
+def _patch_literal_children(node: dict, old_string: str, new_string: str) -> int:
+    """Replace old_string in a node's direct text children, without Markdown.
+
+    A replacement that empties a text node removes the node (ADF forbids
+    empty text), and a container emptied that way drops its `content` key
+    rather than keeping an empty list.
+    """
+    children = node.get("content")
+    if not isinstance(children, list):
+        return 0
+    count = 0
+    for child in children:
+        if not isinstance(child, dict) or child.get("type") != "text":
+            continue
+        text = child.get("text")
+        if isinstance(text, str) and old_string in text:
+            count += text.count(old_string)
+            child["text"] = text.replace(old_string, new_string)
+    if count:
+        _set_content(node, [
+            c for c in children
+            if not (isinstance(c, dict) and c.get("type") == "text" and c.get("text") == "")
+        ])
+    return count
+
+
+def _patch_inline_block(node: dict, old_string: str, new_string: str) -> int:
+    """Patch one Markdown-rendered block; returns the number of replacements."""
+    children = node.get("content")
+    if not isinstance(children, list) or not children:
+        return 0
+    rendered, spans = _render_inline_with_spans(children)
+    hits = _find_all(rendered, old_string)
+    if not hits:
+        return 0
+
+    pieces: list[dict] = []
+    cursor = 0
+    for start in hits:
+        end = start + len(old_string)
+        lo = _snap_left(spans, start)
+        hi = _snap_right(spans, end)
+        if lo < cursor:
+            raise PatchConflict(old_string)
+        pieces.extend(_clip_nodes(spans, cursor, lo))
+        replacement = markdown_inline_to_adf(new_string)
+        _apply_marks(replacement, _run_marks(spans, start, end))
+        pieces.extend(replacement)
+        cursor = hi
+    pieces.extend(_clip_nodes(spans, cursor, len(rendered)))
+    _set_content(node, _merge_text_nodes(pieces))
+    return len(hits)
+
+
+def _set_content(node: dict, content: list[dict]) -> None:
+    if content:
+        node["content"] = content
+    else:
+        node.pop("content", None)
+
+
+def _find_all(haystack: str, needle: str) -> list[int]:
+    """Offsets of every non-overlapping occurrence, left to right."""
+    out: list[int] = []
+    start = 0
+    while True:
+        i = haystack.find(needle, start)
+        if i < 0:
+            return out
+        out.append(i)
+        start = i + len(needle)
+
+
+def _render_inline_with_spans(nodes: list) -> tuple[str, list[dict]]:
+    """Render inline nodes to Markdown, mapping each node to its offsets.
+
+    Each span is `{start, end, text_start, text_end, node}`. For a text node,
+    `[text_start, text_end)` is the slice of the rendered string that maps 1:1
+    onto `node["text"]`, with the mark syntax lying outside it. Other nodes
+    (mentions, emoji, hard breaks, inline cards) have `text_start is None` and
+    are atomic: a patch can consume them whole but never split them.
+    """
+    parts: list[str] = []
+    spans: list[dict] = []
+    pos = 0
+    for node in nodes:
+        text = node.get("text")
+        if node.get("type") == "text" and isinstance(text, str):
+            prefix, suffix = _mark_affixes(node.get("marks") or []) if text else ("", "")
+            rendered = f"{prefix}{text}{suffix}"
+            spans.append({
+                "start": pos,
+                "end": pos + len(rendered),
+                "text_start": pos + len(prefix),
+                "text_end": pos + len(prefix) + len(text),
+                "node": node,
+            })
+        else:
+            rendered = _convert_inline([node])
+            spans.append({
+                "start": pos,
+                "end": pos + len(rendered),
+                "text_start": None,
+                "text_end": None,
+                "node": node,
+            })
+        parts.append(rendered)
+        pos += len(rendered)
+    return "".join(parts), spans
+
+
+def _snap_left(spans: list[dict], pos: int) -> int:
+    """Widen a match start left until it sits on a boundary we can cut at.
+
+    Cutting inside a run's own text is safe (the tail keeps its marks); cutting
+    inside mark syntax or an atomic node is not, so the whole node is consumed.
+    """
+    for span in spans:
+        if span["start"] < pos < span["end"]:
+            if span["text_start"] is not None and span["text_start"] <= pos <= span["text_end"]:
+                return pos
+            return span["start"]
+    return pos
+
+
+def _snap_right(spans: list[dict], pos: int) -> int:
+    """Widen a match end right to the mirror image of `_snap_left`."""
+    for span in spans:
+        if span["start"] < pos < span["end"]:
+            if span["text_start"] is not None and span["text_start"] <= pos <= span["text_end"]:
+                return pos
+            return span["end"]
+    return pos
+
+
+def _clip_nodes(spans: list[dict], lo: int, hi: int) -> list[dict]:
+    """Rebuild the inline nodes covering rendered range [lo, hi)."""
+    out: list[dict] = []
+    for span in spans:
+        if span["start"] == span["end"]:
+            # A node that renders to nothing has no offsets to overlap, so it
+            # would fall out of every clip. Keep it unless the edit swallowed
+            # it, and let the inclusive bounds hand it to exactly one clip.
+            if lo <= span["start"] <= hi:
+                out.append(copy.deepcopy(span["node"]))
+            continue
+        if span["end"] <= lo or span["start"] >= hi:
+            continue
+        if lo <= span["start"] and span["end"] <= hi:
+            out.append(copy.deepcopy(span["node"]))
+            continue
+        # Partial overlap is only reachable on a text node, because both
+        # bounds were snapped to a text slice or a node edge.
+        text_start = span["text_start"]
+        if text_start is None:
+            continue
+        node = span["node"]
+        head = max(lo, text_start) - text_start
+        tail = min(hi, span["text_end"]) - text_start
+        text = node["text"][head:tail]
+        if not text:
+            continue
+        clipped: dict = {"type": "text", "text": text}
+        if node.get("marks"):
+            clipped["marks"] = copy.deepcopy(node["marks"])
+        out.append(clipped)
+    return out
+
+
+def _run_marks(spans: list[dict], lo: int, hi: int) -> list[dict]:
+    """Marks of the single formatted run a match sits inside, if there is one."""
+    for span in spans:
+        text_start = span["text_start"]
+        if text_start is None:
+            continue
+        if text_start <= lo and hi <= span["text_end"] and span["node"].get("marks"):
+            return copy.deepcopy(span["node"]["marks"])
+    return []
+
+
+def _apply_marks(nodes: list[dict], marks: list[dict]) -> None:
+    """Add inherited marks to inserted text, without overriding its own."""
+    if not marks:
+        return
+    for node in nodes:
+        if node.get("type") != "text":
+            continue
+        own = node.get("marks") or []
+        present = {m.get("type") for m in own}
+        merged = own + [copy.deepcopy(m) for m in marks if m.get("type") not in present]
+        if merged:
+            node["marks"] = merged
+
+
+def _merge_text_nodes(nodes: list[dict]) -> list[dict]:
+    """Fuse adjacent text nodes carrying identical marks; drop empty ones."""
+    out: list[dict] = []
+    for node in nodes:
+        if (
+            out
+            and node.get("type") == "text"
+            and out[-1].get("type") == "text"
+            and out[-1].get("marks") == node.get("marks")
+        ):
+            out[-1]["text"] = out[-1].get("text", "") + node.get("text", "")
+            continue
+        out.append(node)
+    return [n for n in out if not (n.get("type") == "text" and not n.get("text"))]
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +459,22 @@ def markdown_to_adf(text: str) -> dict:
     if not content:
         content = [{"type": "paragraph"}]
     return {"version": 1, "type": "doc", "content": content}
+
+
+def markdown_inline_to_adf(text: str) -> list[dict]:
+    """Convert a Markdown fragment to ADF *inline* nodes.
+
+    Unlike `markdown_to_adf` this never produces block nodes, so the result can
+    be spliced straight into a paragraph, heading, or task item. Block syntax
+    in `text` (headings, lists, fences) stays literal.
+    """
+    if not text:
+        return []
+    nodes: list[dict] = []
+    for tok in _md.parseInline(text, {}):
+        if tok.type == "inline":
+            nodes.extend(_inline_children(tok))
+    return nodes
 
 
 def _tokens_to_blocks(tokens: list[Token]) -> list[dict]:
